@@ -124,6 +124,9 @@ class AdapterWrapper(FunctionWrapper):
     def __signature__(self):
         return self._self_surrogate.__signature__
 
+# REVIEW(jmoldow): Well documented and written.
+# But it could use some docstrings.
+
 # Decorator for creating other decorators. This decorator and the
 # wrappers which they use are designed to properly preserve any name
 # attributes, function signatures etc, in addition to the wrappers
@@ -153,7 +156,33 @@ def decorator(wrapper=None, enabled=None, adapter=None):
     # the wrapper will not be called and instead the original wrapped
     # function will be called directly instead.
 
+    # REVIEW(jmoldow): The comments here doesn't do a great job of explaining
+    # the adapter argument. The docs have a better explanation. Basically, if
+    # the decorator is intended to modify the signature of the function, there
+    # is no way to determine this automatically. So when wrapping the decorator
+    # definition with @decorator(), the correct signature is provided via an
+    # adapter function, which is a no-op function that has the desired
+    # signature.
+
     if wrapper is not None:
+        # REVIEW(jmoldow): This is an interesting technique for implementing
+        # decorators that I hadn't seen before recently. Implement the
+        # decorator as if the wrapped function has been passed on the first go,
+        # but put all that logic inside a conditional that checks for the
+        # function. If the conditional fails, return a partial that expects the
+        # wrapped function to be passed. This has two advantages:
+        # 1. You can use both the @decorator and @decorator(kwarg=val) forms.
+        # 2. You don't need three levels of functions, as in:
+        #    > def factory(kwarg):
+        #    >     def decorator(function):
+        #    >         def wrapper(*args, **kwargs):
+        #    >             ...
+        #    >             return function(*args, **kwargs)
+        #    >         return wrapper
+        #    >     return decorator
+        # A disadvantage is that the decorator arguments must be passed as
+        # kwargs.
+
         # Helper function for creating wrapper of the appropriate
         # time when we need it down below.
 
@@ -164,6 +193,14 @@ def decorator(wrapper=None, enabled=None, adapter=None):
 
             return FunctionWrapper(wrapped=wrapped, wrapper=wrapper,
                     enabled=enabled)
+
+        # REVIEW(jmoldow): Lots of comments! This is great for explaining a
+        # very complicated piece of code, but not so great for being able to
+        # see whole sections of code at a time (at least if you are using an
+        # old-school editor like I tend to).
+
+        # REVIEW(jmoldow): The below comment is very critical to how the
+        # framework works.
 
         # The wrapper has been provided so return the final decorator.
         # The decorator is itself one of our function wrappers so we
@@ -344,6 +381,13 @@ def decorator(wrapper=None, enabled=None, adapter=None):
         # We first return our magic function wrapper here so we can
         # determine in what context the decorator factory was used. In
         # other words, it is itself a universal decorator.
+
+        # REVIEW(jmoldow): The decorator itself becomes a wrapped object. When
+        # the decorator is applied, magic happens (to inspect context and make
+        # bindings), then the actual decorator is made to wrap the function.
+        # We use the defaults for enabled and adapter, because we always wants
+        # @decorator to be applied, and @decorator does not modify the
+        # decorator's signature.
 
         return _build(wrapper, _wrapper)
 

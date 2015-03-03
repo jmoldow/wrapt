@@ -17,6 +17,10 @@ class _ObjectProxyMethods(object):
      # via a meta class. In that way the properties will always take
      # precedence.
 
+    # REVIEW(jmoldow): A preview of things to come. The ObjectProxy classes
+    # will store the wrapped object in the __wrapped__ attribute, to be able to
+    # access the original information.
+
     @property
     def __module__(self):
         return self.__wrapped__.__module__
@@ -47,13 +51,42 @@ class _ObjectProxyMetaType(type):
          # during construction of a derived class. This is to save
          # duplicating the implementation for them in all derived classes.
 
+         # REVIEW(jmoldow): I was never before aware of the vars() built-in
+         # method. I was only aware of the .__dict__ attribute, which is not
+         # available for all objects.
+
          dictionary.update(vars(_ObjectProxyMethods))
 
          return type.__new__(cls, name, bases, dictionary)
 
+# REVIEW(jmoldow): A class metatype can override the behavior of class
+# definition, since defining a class X with metatype M is the same as calling
+# M.__new__(M, 'X', bases, dictionary).
+# In this case, _ObjectProxyMetaType is copying all of the property definitions
+# from the dummy _ObjectProxyMethods class, to overwrite the default Python
+# implementations of those properties. Subclassing would not have worked, since
+# the Python defaults have priority over the superclass implementations. And
+# hand-copying all of those method definitions to all subclasses of ObjectProxy
+# would be annoying and error prone.
+
+# REVIEW(jmoldow): six is a python2/python3 compatibility library available in
+# PyPI. It can be used to get around language syntax changes, so that your own
+# library works in both languages.
+
 class ObjectProxy(six.with_metaclass(_ObjectProxyMetaType)):
 
+    # REVIEW(jmoldow): The author notes in the documentation that all of his
+    # ObjectProxy code is going to be called every single time a decorated
+    # function is called. This means that the performance and efficiency of the
+    # ObjectProxy classes is very important. One way he achieves performance is
+    # by re-writing this module as a C extension (I will not be reviewing
+    # this). Another way he does it is by using __slots__, so that the objects
+    # take up as little space in memory as possible.
+
     __slots__ = '__wrapped__'
+
+    # REVIEW(jmoldow): Store a reference to the object being wrapped/proxied,
+    # so that we can inspect the original data.
 
     def __init__(self, wrapped):
         object.__setattr__(self, '__wrapped__', wrapped)
@@ -66,6 +99,11 @@ class ObjectProxy(six.with_metaclass(_ObjectProxyMetaType)):
             object.__setattr__(self, '__qualname__', wrapped.__qualname__)
         except AttributeError:
             pass
+
+    # REVIEW(jmoldow): I guess Python is more forgiving with these properties.
+    # They don't need to be copied over at class definition time via the
+    # metaclass. Are they properties by default in Python, so that their
+    # implementations can be overriden via subclassing?
 
     @property
     def __name__(self):
@@ -107,6 +145,8 @@ class ObjectProxy(six.with_metaclass(_ObjectProxyMetaType)):
                 type(self.__wrapped__).__name__,
                 id(self.__wrapped__))
 
+    # REVIEW(jmoldow): Apparently he doesn't believe in python2 unicode.
+
     def __reversed__(self):
         return reversed(self.__wrapped__)
 
@@ -146,6 +186,10 @@ class ObjectProxy(six.with_metaclass(_ObjectProxyMetaType)):
             object.__setattr__(self, name, value)
 
         elif name == '__wrapped__':
+            # REVIEW(jmoldow): I'm not familiar with python3 / __qualname__ /
+            # classes that use __slots__. Why do we need to call
+            # object.__setattr__() twice, and why does __qualname__ need to be
+            # deleted before it is set?
             object.__setattr__(self, name, value)
             try:
                 object.__delattr__(self, '__qualname__')
@@ -158,6 +202,8 @@ class ObjectProxy(six.with_metaclass(_ObjectProxyMetaType)):
                 pass
 
         elif name == '__qualname__':
+            # REVIEW(jmoldow): And how come __qualname__ doesn't need to be
+            # deleted first when it is set here?
             setattr(self.__wrapped__, name, value)
             object.__setattr__(self, name, value)
 
@@ -167,6 +213,10 @@ class ObjectProxy(six.with_metaclass(_ObjectProxyMetaType)):
         else:
             setattr(self.__wrapped__, name, value)
 
+    # REVIEW(jmoldow): __getattr__(), not __getattribute__(), is overwritten
+    # here. This means that the view attributes that the ObjectProxy actually
+    # has, will be fetched from the actual object. But when the correct
+    # attribute is not found, the request is proxied to the wrapped object.
     def __getattr__(self, name):
         return getattr(self.__wrapped__, name)
 
@@ -195,6 +245,8 @@ class ObjectProxy(six.with_metaclass(_ObjectProxyMetaType)):
 
     def __mul__(self, other):
         return self.__wrapped__ * other
+
+    # REVIEW(jmoldow): TIL about the operator module.
 
     def __div__(self, other):
         return operator.div(self.__wrapped__, other)
@@ -388,6 +440,7 @@ class ObjectProxy(six.with_metaclass(_ObjectProxyMetaType)):
 
 class CallableObjectProxy(ObjectProxy):
 
+  p
     def __call__(self, *args, **kwargs):
         return self.__wrapped__(*args, **kwargs)
 
@@ -406,6 +459,20 @@ class _FunctionWrapperBase(ObjectProxy):
         object.__setattr__(self, '_self_enabled', enabled)
         object.__setattr__(self, '_self_binding', binding)
         object.__setattr__(self, '_self_parent', parent)
+
+    # REVIEW(jmoldow): By defining __get__(), instances of this class become
+    # descriptors. If we have
+    # > class Foo(object):
+    # >     bar = _FunctionWrapperBase()
+    # then Foo.bar evaluates to vars(Foo)['bar'].__get__(None, Foo), and
+    # foo = Foo(); foo.bar evaluates to vars(Foo)['bar'].__get__(foo, Foo).
+    # Methods are secretly descriptors!
+    # > class Foo(object):
+    # >     def bar(self):
+    # >         pass
+    # vars(Foo)['bar'] is a function object with a __get__() method that
+    # performs binding so that calls to Foo.bar() and Foo().bar() set self
+    # correctly.
 
     def __get__(self, instance, owner):
         # If we are called in an unbound wrapper, then perform the binding.
